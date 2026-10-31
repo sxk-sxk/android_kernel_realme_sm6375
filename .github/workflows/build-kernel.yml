@@ -1,0 +1,98 @@
+name: Build RMX3474 Kernel with KernelSU & 4GB Optimizations
+
+on:
+  workflow_dispatch:
+    inputs:
+      ksu_version:
+        description: 'KernelSU version tag'
+        required: false
+        default: 'v0.9.5'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+        with:
+          ref: lineage-22.1
+          fetch-depth: 1
+
+      - name: Set up Build Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev \
+            python3 python-is-python3 libncurses-dev cpio lz4 zlib1g-dev git curl wget zip
+
+      - name: Download AOSP Clang Toolchain (r536225)
+        run: |
+          mkdir -p clang
+          echo "Downloading Google AOSP Clang r536225..."
+          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r536225.tar.gz
+          tar -xzf clang-r536225.tar.gz -C clang
+          rm clang-r536225.tar.gz
+
+      - name: Integrate KernelSU (Classic)
+        run: |
+          KSU_TAG="${{ github.event.inputs.ksu_version || 'v0.9.5' }}"
+          echo "Setting up KernelSU: $KSU_TAG"
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s "$KSU_TAG"
+
+      - name: Apply 4GB RAM Optimizations to Defconfig
+        run: |
+          DEFCONFIG="arch/arm64/configs/vendor/holi-qgki_defconfig"
+          
+          echo "CONFIG_KSU=y" >> $DEFCONFIG
+          
+          # Disable heavy RAM-eating debug features
+          sed -i 's/CONFIG_PAGE_OWNER=y/# CONFIG_PAGE_OWNER is not set/' $DEFCONFIG
+          sed -i 's/CONFIG_DEBUG_INFO=y/# CONFIG_DEBUG_INFO is not set/' $DEFCONFIG
+          sed -i 's/CONFIG_DEBUG_INFO_DWARF4=y/# CONFIG_DEBUG_INFO_DWARF4 is not set/' $DEFCONFIG
+          sed -i 's/CONFIG_QCOM_KGSL_CONTEXT_DEBUG=y/# CONFIG_QCOM_KGSL_CONTEXT_DEBUG is not set/' $DEFCONFIG
+          
+          # Fast ZRAM LZ4 compression
+          echo "CONFIG_ZRAM_DEF_COMP_LZ4=y" >> $DEFCONFIG
+          echo "CONFIG_CRYPTO_LZ4=y" >> $DEFCONFIG
+          echo "CONFIG_CRYPTO_LZ4_HC=y" >> $DEFCONFIG
+          
+          echo "Optimization completed."
+
+      - name: Compile Kernel
+        run: |
+          export PATH="$(pwd)/clang/bin:$PATH"
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CC=clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
+          
+          make O=out vendor/holi-qgki_defconfig
+          make -j$(nproc --all) O=out LLVM=1 LLVM_IAS=1 Image
+          
+          echo "Kernel compiled successfully!"
+          ls -lh out/arch/arm64/boot/Image
+
+      - name: Package AnyKernel3 Zip
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3.git AK3
+          cp out/arch/arm64/boot/Image AK3/
+          cd AK3
+          
+          sed -i 's/device.name1=.*/device.name1=oscar/' anykernel.sh
+          sed -i 's/device.name2=.*/device.name2=RMX3474/' anykernel.sh
+          sed -i 's/device.name3=.*/device.name3=RMX3471/' anykernel.sh
+          sed -i 's/device.name4=.*/device.name4=RMX3472/' anykernel.sh
+          sed -i 's/is_slot_device=0/is_slot_device=1/' anykernel.sh
+          sed -i 's|block=.*|block=auto|' anykernel.sh
+          
+          zip -r9 ../KernelSU-RMX3474-4GB-AK3.zip * -x .git .gitignore README.md
+          cd ..
+
+      - name: Upload Kernel Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: KernelSU-RMX3474-4GB-Artifacts
+          path: |
+            KernelSU-RMX3474-4GB-AK3.zip
+            out/arch/arm64/boot/Image
