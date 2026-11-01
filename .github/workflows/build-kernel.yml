@@ -28,10 +28,10 @@ jobs:
           tar -xzf clang-r536225.tar.gz -C clang
           rm clang-r536225.tar.gz
 
-      - name: Integrate SukiSU Ultra (Latest main)
+      - name: Integrate SukiSU Ultra (Stable v4.3.0)
         run: |
-          echo "Integrating SukiSU Ultra..."
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
+          echo "Integrating SukiSU Ultra v4.3.0..."
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/v4.3.0/kernel/setup.sh" | bash -s v4.3.0
 
       - name: Fix Driver Compatibility (Wi-Fi, Camera, 120Hz)
         run: |
@@ -79,7 +79,7 @@ jobs:
       - name: Compile Kernel
         run: |
           export PATH="$(pwd)/clang/bin:$PATH"
-          MAKE_ARGS="O=out ARCH=arm64 SUBARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1"
+          MAKE_ARGS="O=out ARCH=arm64 SUBARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1 KCFLAGS=-Wno-error"
           
           make $MAKE_ARGS vendor/holi-qgki_defconfig
           make -j$(nproc --all) $MAKE_ARGS Image
