@@ -52,6 +52,23 @@ jobs:
           print("Module compatibility patch applied!")
           '
 
+      - name: Backport Linux 5.4 Headers for SukiSU Ultra
+        run: |
+          # Create include/linux/pgtable.h (redirects to asm/pgtable.h for 5.4)
+          cat << 'EOF' > include/linux/pgtable.h
+          #ifndef _LINUX_PGTABLE_H
+          #define _LINUX_PGTABLE_H
+          #include <asm/pgtable.h>
+          #endif
+          EOF
+          
+          # Add strncpy_from_user_nofault compatibility alias
+          cat << 'EOF' >> include/linux/uaccess.h
+          #ifndef strncpy_from_user_nofault
+          #define strncpy_from_user_nofault strncpy_from_unsafe_user
+          #endif
+          EOF
+
       - name: Apply Defconfig Tweaks (KPM & 4GB Optimizations)
         run: |
           DEFCONFIG="arch/arm64/configs/vendor/holi-qgki_defconfig"
