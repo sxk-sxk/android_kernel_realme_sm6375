@@ -1,12 +1,7 @@
-name: Build RMX3474 Kernel with KernelSU & 4GB Optimizations
+name: Build RMX3474 Kernel with SukiSU Ultra & 4GB Optimizations
 
 on:
   workflow_dispatch:
-    inputs:
-      ksu_version:
-        description: 'KernelSU version tag'
-        required: false
-        default: 'v0.9.5'
 
 jobs:
   build:
@@ -33,19 +28,44 @@ jobs:
           tar -xzf clang-r536225.tar.gz -C clang
           rm clang-r536225.tar.gz
 
-      - name: Integrate KernelSU (Classic)
+      - name: Integrate SukiSU Ultra (Latest main)
         run: |
-          KSU_TAG="${{ github.event.inputs.ksu_version || 'v0.9.5' }}"
-          echo "Setting up KernelSU: $KSU_TAG"
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s "$KSU_TAG"
+          echo "Integrating SukiSU Ultra..."
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
 
-      - name: Apply 4GB RAM Optimizations to Defconfig
+      - name: Fix Driver Compatibility (Wi-Fi, Camera, 120Hz)
+        run: |
+          # 1. Match exact crDroid kernel version
+          sed -i 's/SUBLEVEL = 289/SUBLEVEL = 293/' Makefile
+          touch .scmversion
+          sed -i 's/res="${res}-dirty"/# res="${res}-dirty"/' scripts/setlocalversion
+          
+          # 2. Patch kernel/module.c to allow all vendor drivers to load
+          python3 -c '
+          with open("kernel/module.c", "r") as f:
+              c = f.read()
+          import re
+          c = re.sub(r"(static inline int same_magic\([^)]+\)\s*\{)([^}]+)(\})", r"\1\n\treturn 1;\n\3", c)
+          c = re.sub(r"(static int check_version\([^)]+\)\s*\{)", r"\1\n\treturn 1;", c)
+          with open("kernel/module.c", "w") as f:
+              f.write(c)
+          print("Module compatibility patch applied!")
+          '
+
+      - name: Apply Defconfig Tweaks (KPM & 4GB Optimizations)
         run: |
           DEFCONFIG="arch/arm64/configs/vendor/holi-qgki_defconfig"
           
-          echo "CONFIG_KSU=y" >> $DEFCONFIG
+          # Match crDroid localversion
+          sed -i 's/CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION="-qgki-gdd282b447387"/' $DEFCONFIG
           
-          # Disable heavy RAM-eating debug features
+          # SukiSU Ultra + KPM support
+          echo "CONFIG_KSU=y" >> $DEFCONFIG
+          echo "CONFIG_KPM=y" >> $DEFCONFIG
+          echo "CONFIG_KALLSYMS=y" >> $DEFCONFIG
+          echo "CONFIG_KALLSYMS_ALL=y" >> $DEFCONFIG
+          
+          # 4GB RAM Smoothness optimizations
           sed -i 's/CONFIG_PAGE_OWNER=y/# CONFIG_PAGE_OWNER is not set/' $DEFCONFIG
           sed -i 's/CONFIG_DEBUG_INFO=y/# CONFIG_DEBUG_INFO is not set/' $DEFCONFIG
           sed -i 's/CONFIG_DEBUG_INFO_DWARF4=y/# CONFIG_DEBUG_INFO_DWARF4 is not set/' $DEFCONFIG
@@ -55,19 +75,13 @@ jobs:
           echo "CONFIG_ZRAM_DEF_COMP_LZ4=y" >> $DEFCONFIG
           echo "CONFIG_CRYPTO_LZ4=y" >> $DEFCONFIG
           echo "CONFIG_CRYPTO_LZ4_HC=y" >> $DEFCONFIG
-          
-          echo "Optimization completed."
 
       - name: Compile Kernel
         run: |
           export PATH="$(pwd)/clang/bin:$PATH"
-          
           MAKE_ARGS="O=out ARCH=arm64 SUBARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- LLVM=1 LLVM_IAS=1"
           
-          # 1. Defconfig with LLVM flags
           make $MAKE_ARGS vendor/holi-qgki_defconfig
-          
-          # 2. Build Image
           make -j$(nproc --all) $MAKE_ARGS Image
           
           echo "Kernel compiled successfully!"
@@ -79,20 +93,22 @@ jobs:
           cp out/arch/arm64/boot/Image AK3/
           cd AK3
           
-          sed -i 's/device.name1=.*/device.name1=oscar/' anykernel.sh
-          sed -i 's/device.name2=.*/device.name2=RMX3474/' anykernel.sh
-          sed -i 's/device.name3=.*/device.name3=RMX3471/' anykernel.sh
-          sed -i 's/device.name4=.*/device.name4=RMX3472/' anykernel.sh
-          sed -i 's/is_slot_device=0/is_slot_device=1/' anykernel.sh
-          sed -i 's|block=.*|block=auto|' anykernel.sh
+          # Configure AnyKernel3 for RE54CBL1 / oscar
+          sed -i 's/device.name1=.*/device.name1=RE54CBL1/' anykernel.sh
+          sed -i 's/device.name2=.*/device.name2=oscar/' anykernel.sh
+          sed -i 's/device.name3=.*/device.name3=RMX3474/' anykernel.sh
+          sed -i 's/device.name4=.*/device.name4=RMX3471/' anykernel.sh
+          sed -i 's/device.name5=.*/device.name5=RMX3472/' anykernel.sh
+          sed -i 's|BLOCK=.*|BLOCK=boot;|' anykernel.sh
+          sed -i 's/IS_SLOT_DEVICE=.*/IS_SLOT_DEVICE=auto;/' anykernel.sh
           
-          zip -r9 ../KernelSU-RMX3474-4GB-AK3.zip * -x .git .gitignore README.md
+          zip -r9 ../SukiSU-Ultra-RMX3474-4GB-AK3.zip * -x .git .gitignore README.md
           cd ..
 
       - name: Upload Kernel Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: KernelSU-RMX3474-4GB-Artifacts
+          name: SukiSU-Ultra-RMX3474-4GB-Artifacts
           path: |
-            KernelSU-RMX3474-4GB-AK3.zip
+            SukiSU-Ultra-RMX3474-4GB-AK3.zip
             out/arch/arm64/boot/Image
