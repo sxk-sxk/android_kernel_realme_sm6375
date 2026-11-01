@@ -55,7 +55,7 @@ jobs:
 
       - name: Backport Linux 5.4 Headers for SukiSU Ultra
         run: |
-          # Create include/linux/pgtable.h (redirects to asm/pgtable.h for 5.4)
+          # 1. Create include/linux/pgtable.h (redirects to asm/pgtable.h for 5.4)
           cat << 'EOF' > include/linux/pgtable.h
           #ifndef _LINUX_PGTABLE_H
           #define _LINUX_PGTABLE_H
@@ -63,12 +63,27 @@ jobs:
           #endif
           EOF
           
-          # Add strncpy_from_user_nofault compatibility alias
+          # 2. Add complete Linux 5.8 nofault memory accessor compatibility aliases for 5.4
           cat << 'EOF' >> include/linux/uaccess.h
+          #ifndef copy_from_kernel_nofault
+          #define copy_from_kernel_nofault probe_kernel_read
+          #endif
+          #ifndef copy_to_kernel_nofault
+          #define copy_to_kernel_nofault probe_kernel_write
+          #endif
+          #ifndef copy_from_user_nofault
+          #define copy_from_user_nofault probe_user_read
+          #endif
+          #ifndef copy_to_user_nofault
+          #define copy_to_user_nofault probe_user_write
+          #endif
           #ifndef strncpy_from_user_nofault
           #define strncpy_from_user_nofault strncpy_from_unsafe_user
           #endif
           EOF
+
+          # 3. Ensure kernel_compat.h includes uaccess.h
+          sed -i '1s/^/#include <linux\/uaccess.h>\n/' KernelSU/kernel/kernel_compat.h
 
       - name: Apply Defconfig Tweaks (KPM & 4GB Optimizations)
         run: |
